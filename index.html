@@ -39,10 +39,12 @@
   }
 }
 </script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <link rel="stylesheet" href="/index.css">
 </head>
   <body class="bg-brand-light">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+    <script type="text/babel" data-presets="react,typescript" src="/index.tsx" data-type="module"></script>
+  <script type="module" src="/index.tsx"></script>
+</body>
 </html>
