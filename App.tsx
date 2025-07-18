@@ -1,131 +1,153 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Event, Building, SubSection, User, ViewMode, Season } from './types';
-import { INITIAL_BUILDINGS, INITIAL_EVENTS, USERS } from './constants';
+
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { Event, CalendarView, Team, Building, User, Organization } from './types';
+import { BUILDINGS, INITIAL_EVENTS, TEAMS, USERS, ORGANIZATIONS } from './constants';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
-import { MonthView } from './components/MonthView';
-import { WeekView } from './components/WeekView';
-import { DayView } from './components/DayView';
+import { Calendar } from './components/Calendar';
 import { EventModal } from './components/EventModal';
-import { ListView } from './components/ListView';
+import { TeamSettingsModal } from './components/TeamSettingsModal';
+import { Login } from './components/Login';
 import { AdminPanel } from './components/AdminPanel';
 import { Icon } from './components/Icon';
-import { LoginView } from './components/LoginView';
-
-const getSeason = (date: Date): { name: Season, icon: string } => {
-    const month = date.getMonth();
-    if (month >= 2 && month <= 4) return { name: 'Spring', icon: '🌸' };
-    if (month >= 5 && month <= 7) return { name: 'Summer', icon: '☀️' };
-    if (month >= 8 && month <= 10) return { name: 'Fall', icon: '🍂' };
-    return { name: 'Winter', icon: '❄️' };
-}
 
 const App: React.FC = () => {
-  const [events, setEvents] = useState<Event[]>(INITIAL_EVENTS);
-  const [buildings, setBuildings] = useState<Building[]>(INITIAL_BUILDINGS);
-  const [users, setUsers] = useState<User[]>(USERS);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentOrganizationId, setCurrentOrganizationId] = useState<string | null>(null);
   
+  const [events, setEvents] = useState<Event[]>(INITIAL_EVENTS);
+  const [teams, setTeams] = useState<Team[]>(TEAMS);
+  const [buildings, setBuildings] = useState<Building[]>(BUILDINGS);
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-  const [initialModalData, setInitialModalData] = useState<Partial<Event> | undefined>(undefined);
-  
-  const [viewMode, setViewMode] = useState<ViewMode>('week');
-  const [mainView, setMainView] = useState<'scheduler' | 'admin'>('scheduler');
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [calendarView, setCalendarView] = useState<CalendarView>('month');
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [selectedTeamForSettings, setSelectedTeamForSettings] = useState<Team | null>(null);
+  const [initialTeamIdForModal, setInitialTeamIdForModal] = useState<string | null>(null);
+  const [initialBuildingIdForModal, setInitialBuildingIdForModal] = useState<string | null>(null);
+  const [appView, setAppView] = useState<'calendar' | 'admin'>('calendar');
 
-  const handleLogin = useCallback((username: string, password: string): boolean => {
-    const user = users.find(u => u.username === username && u.password === password);
-    if(user) {
-        setCurrentUser(user);
-        setMainView('scheduler');
-        return true;
+  const handleLogin = (user: User) => {
+    setCurrentUser(user);
+    // Superadmins or users in multiple orgs must select one.
+    // A standard admin or coach in one org gets it automatically.
+    if (user.role === 'superadmin' || user.organizationIds.length > 1) {
+      setCurrentOrganizationId(null);
+    } else if (user.organizationIds.length === 1) {
+      setCurrentOrganizationId(user.organizationIds[0]);
+    } else {
+      setCurrentOrganizationId(null); // No orgs assigned
     }
-    return false;
-  }, [users]);
-  
-  const handleLogout = useCallback(() => {
-    setCurrentUser(null);
-  }, []);
+    setAppView('calendar');
+  };
 
-  const handleCreateTeam = useCallback((teamName: string) => {
-    if (!currentUser) return;
-    const updatedUser = { ...currentUser, teams: [...currentUser.teams, teamName]};
-    setCurrentUser(updatedUser);
-    setUsers(prevUsers => prevUsers.map(u => u.id === currentUser.id ? updatedUser : u));
-  }, [currentUser]);
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setCurrentOrganizationId(null);
+  };
+
+  const handleOrganizationChange = (orgId: string) => {
+      setCurrentOrganizationId(orgId);
+      setSelectedBuildingId(null); // Reset filter when changing org
+      setAppView('calendar');
+  }
+
+  // Memoized filtered data based on current organization
+  const currentOrganization = useMemo(() => ORGANIZATIONS.find(o => o.id === currentOrganizationId), [currentOrganizationId]);
+  
+  const visibleBuildings = useMemo(() => buildings.filter(b => b.organizationId === currentOrganizationId), [buildings, currentOrganizationId]);
+  
+  const visibleTeams = useMemo(() => {
+    if (!currentUser || !currentOrganizationId) return [];
+    const orgTeams = teams.filter(t => t.organizationId === currentOrganizationId);
+    if (currentUser.role === 'coach') {
+      return orgTeams.filter(t => t.coachEmail === currentUser.email);
+    }
+    return orgTeams;
+  }, [teams, currentUser, currentOrganizationId]);
 
   const filteredEvents = useMemo(() => {
+    const orgEvents = events.filter(event => event.organizationId === currentOrganizationId);
     if (!selectedBuildingId) {
-      return events;
+      return orgEvents;
     }
-    return events.filter(event => event.buildingId === selectedBuildingId);
-  }, [events, selectedBuildingId]);
+    return orgEvents.filter(event => event.buildingId === selectedBuildingId);
+  }, [events, selectedBuildingId, currentOrganizationId]);
   
-  const handleNavigate = useCallback((direction: 'next' | 'prev' | 'today') => {
-    if (direction === 'today') {
-        setCurrentDate(new Date());
-        return;
+  // Reset selected building if it's not in the new visible set
+  useEffect(() => {
+    if (selectedBuildingId && !visibleBuildings.some(b => b.id === selectedBuildingId)) {
+        setSelectedBuildingId(null);
     }
+  }, [visibleBuildings, selectedBuildingId]);
 
+
+  const handleNext = useCallback(() => {
     setCurrentDate(prev => {
-        const newDate = new Date(prev);
-        const increment = direction === 'next' ? 1 : -1;
-        switch (viewMode) {
-            case 'month':
-            case 'list':
-                newDate.setMonth(newDate.getMonth() + increment);
-                break;
-            case 'week':
-                newDate.setDate(newDate.getDate() + (7 * increment));
-                break;
-            case 'day':
-                newDate.setDate(newDate.getDate() + increment);
-                break;
-        }
-        return newDate;
+      const newDate = new Date(prev);
+      if (calendarView === 'month') newDate.setMonth(newDate.getMonth() + 1, 1);
+      else if (calendarView === 'week') newDate.setDate(newDate.getDate() + 7);
+      else newDate.setDate(newDate.getDate() + 1);
+      return newDate;
     });
-  }, [viewMode]);
+  }, [calendarView]);
 
-  const handleDayClick = useCallback((date: Date) => {
-    setInitialModalData({ start: date });
+  const handlePrev = useCallback(() => {
+    setCurrentDate(prev => {
+      const newDate = new Date(prev);
+      if (calendarView === 'month') newDate.setMonth(newDate.getMonth() - 1, 1);
+       else if (calendarView === 'week') newDate.setDate(newDate.getDate() - 7);
+      else newDate.setDate(newDate.getDate() - 1);
+      return newDate;
+    });
+  }, [calendarView]);
+
+  const handleToday = useCallback(() => { setCurrentDate(new Date()); }, []);
+  const handleTimeSlotClick = useCallback((date: Date) => {
+    setInitialTeamIdForModal(null);
+    setInitialBuildingIdForModal(null);
+    setSelectedDate(date);
     setSelectedEvent(null);
     setIsModalOpen(true);
   }, []);
   
   const handleAddEventClick = useCallback(() => {
-    setInitialModalData({ start: new Date() });
+    if (!currentOrganizationId) return;
+    setInitialTeamIdForModal(null);
+    setInitialBuildingIdForModal(null);
+    const now = new Date();
+    now.setHours(now.getHours() + 1, 0, 0, 0);
+    setSelectedDate(now);
     setSelectedEvent(null);
     setIsModalOpen(true);
-  }, []);
+  }, [currentOrganizationId]);
 
   const handleEventClick = useCallback((event: Event) => {
+    setInitialTeamIdForModal(null);
+    setInitialBuildingIdForModal(null);
     setSelectedEvent(event);
-    setInitialModalData(undefined);
+    setSelectedDate(event.start);
     setIsModalOpen(true);
   }, []);
 
   const handleCloseModal = useCallback(() => {
     setIsModalOpen(false);
     setSelectedEvent(null);
-    setInitialModalData(undefined);
+    setSelectedDate(null);
+    setInitialTeamIdForModal(null);
+    setInitialBuildingIdForModal(null);
   }, []);
 
-  const handleSaveEvent = useCallback((eventData: Omit<Event, 'id' | 'season'> | (Omit<Event, 'season'> & {id: string})) => {
-    const season = getSeason(eventData.start).name;
-    
+  const handleSaveEvent = useCallback((eventData: Omit<Event, 'id'> | Event) => {
+    const saveData = { ...eventData, id: 'id' in eventData ? eventData.id : `evt_${new Date().toISOString()}` };
     if ('id' in eventData && events.some(e => e.id === eventData.id)) {
-      // Update existing event
-      setEvents(prev => prev.map(e => e.id === eventData.id ? { ...e, ...eventData, season } as Event : e));
+      setEvents(prev => prev.map(e => e.id === saveData.id ? saveData as Event : e));
     } else {
-      // Add new event
-      const newEvent: Event = {
-        id: new Date().toISOString(),
-        ...(eventData as Omit<Event, 'id' | 'season'>),
-        season
-      };
-      setEvents(prev => [...prev, newEvent]);
+      setEvents(prev => [...prev, saveData as Event]);
     }
     handleCloseModal();
   }, [events, handleCloseModal]);
@@ -135,117 +157,162 @@ const App: React.FC = () => {
     handleCloseModal();
   }, [handleCloseModal]);
 
-  const handleSaveBuilding = useCallback((buildingName: string) => {
-      const newBuilding: Building = {
-          id: buildingName.toLowerCase().replace(/\s+/g, '_') + `_${Date.now()}`,
-          name: buildingName,
-          icon: (
-              <Icon className="w-5 h-5">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10.868 2.884c.321-.772 1.415-.772 1.736 0l1.291 3.118c.244.588.765.998 1.396 1.057l3.43.501c.854.124 1.197 1.163.573 1.76l-2.48 2.418a1.523 1.523 0 00-.438 1.354l.585 3.417c.145.848-.744 1.502-1.494 1.118l-3.065-1.612a1.523 1.523 0 00-1.42 0l-3.065 1.612c-.75.384-1.639-.27-1.494-1.118l.585-3.417a1.523 1.523 0 00-.438-1.354l-2.48-2.418c-.624-.597-.28-1.636.574-1.76l3.43-.501c.63-.092 1.152-.47 1.396-1.057l1.29-3.118z" clipRule="evenodd" /></svg>
-              </Icon>
-          ),
-          subSections: []
-      };
-      setBuildings(prev => [...prev, newBuilding]);
+  const handleEditTeam = useCallback((team: Team) => {
+    setSelectedTeamForSettings(team);
+    setIsTeamModalOpen(true);
   }, []);
 
-  const handleSaveSubSection = useCallback((buildingId: string, subSectionName: string) => {
-      setBuildings(prev => prev.map(b => {
-          if (b.id === buildingId) {
-              const newSubSection: SubSection = {
-                  id: `${buildingId}_${subSectionName.toLowerCase().replace(/\s+/g, '_')}`,
-                  name: subSectionName
-              };
-              return {
-                  ...b,
-                  subSections: [...(b.subSections || []), newSubSection]
-              };
-          }
-          return b;
-      }));
+  const handleCloseTeamModal = useCallback(() => {
+    setIsTeamModalOpen(false);
+    setSelectedTeamForSettings(null);
+  }, []);
+
+  const handleSaveTeam = useCallback((updatedTeam: Team) => {
+    setTeams(prevTeams => prevTeams.map(t => t.id === updatedTeam.id ? updatedTeam : t));
+  }, []);
+   
+  const handleCreateTeam = (newTeam: Omit<Team, 'id'>) => {
+    setTeams(prev => [...prev, { ...newTeam, id: `team_${new Date().toISOString()}`}]);
+  };
+
+  const handleDeleteTeam = (teamId: string) => {
+    setTeams(prev => prev.filter(t => t.id !== teamId));
+    setEvents(prev => prev.filter(e => e.teamId !== teamId));
+  };
+  
+  const handleSaveBuilding = (updatedBuilding: Building) => {
+     setBuildings(prev => prev.map(b => b.id === updatedBuilding.id ? updatedBuilding : b));
+  };
+  
+  const handleCreateBuilding = (newBuilding: Omit<Building, 'id'>) => {
+    setBuildings(prev => [...prev, {...newBuilding, id: `bldg_${new Date().toISOString()}`}]);
+  };
+
+  const handleDeleteBuilding = (buildingId: string) => {
+    setBuildings(prev => prev.filter(b => b.id !== buildingId));
+    setEvents(prev => prev.filter(e => e.buildingId !== buildingId));
+  };
+
+  const handleTeamDrop = useCallback((teamId: string, date: Date) => {
+    setSelectedEvent(null);
+    setSelectedDate(date);
+    setInitialTeamIdForModal(teamId);
+    setInitialBuildingIdForModal(null);
+    setIsModalOpen(true);
   }, []);
   
-  const handleImportEvents = useCallback((newEvents: Event[]) => {
-      setEvents(prev => [...prev, ...newEvents]);
-  }, []);
-
-  const handleDropOnCalendar = useCallback((buildingId: string, date: Date) => {
-    const start = new Date(date);
-    const end = new Date(date);
-    end.setHours(start.getHours() + 1);
-
-    setInitialModalData({ buildingId, start, end });
+  const handleFacilityDrop = useCallback((facilityId: string, date: Date) => {
     setSelectedEvent(null);
+    setSelectedDate(date);
+    setInitialBuildingIdForModal(facilityId);
+    setInitialTeamIdForModal(null);
     setIsModalOpen(true);
   }, []);
 
   if (!currentUser) {
-    return <LoginView onLogin={handleLogin} />;
+    return <Login users={USERS} onLogin={handleLogin} />;
   }
 
-  const renderView = () => {
-    const monthEvents = events.filter(e => e.start.getFullYear() === currentDate.getFullYear() && e.start.getMonth() === currentDate.getMonth());
-    const eventsForView = selectedBuildingId ? monthEvents.filter(e => e.buildingId === selectedBuildingId) : monthEvents;
+  const renderContent = () => {
+      if (!currentOrganizationId) {
+          return (
+             <div className="flex-1 flex flex-col items-center justify-center text-center bg-white rounded-lg shadow-sm h-full">
+                <Icon className="w-16 h-16 text-gray-300 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 9l-3 3m0 0l3 3m-3-3h7.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </Icon>
+                <h2 className="text-2xl font-bold text-gray-700">Select an Organization</h2>
+                <p className="text-gray-500 mt-2 max-w-sm">Please choose an organization from the dropdown menu in the sidebar to view its schedule and resources.</p>
+            </div>
+          );
+      }
 
-    switch(viewMode) {
-      case 'month':
-        return <MonthView currentDate={currentDate} events={filteredEvents} onDayClick={handleDayClick} onEventClick={handleEventClick} onDrop={handleDropOnCalendar} />;
-      case 'week':
-        return <WeekView currentDate={currentDate} events={filteredEvents} onEventClick={handleEventClick} onDropOnTimeSlot={handleDropOnCalendar} />;
-      case 'day':
-        return <DayView currentDate={currentDate} events={filteredEvents} onEventClick={handleEventClick} onDropOnTimeSlot={handleDropOnCalendar} />;
-      case 'list':
-        return <ListView currentDate={currentDate} events={eventsForView} onEventClick={handleEventClick} buildings={buildings} />;
-      default:
-        return <WeekView currentDate={currentDate} events={filteredEvents} onEventClick={handleEventClick} onDropOnTimeSlot={handleDropOnCalendar} />;
-    }
+      if (appView === 'admin') {
+          return (
+             <AdminPanel
+                teams={visibleTeams}
+                buildings={visibleBuildings}
+                onTeamSave={handleSaveTeam}
+                onTeamCreate={handleCreateTeam}
+                onTeamDelete={handleDeleteTeam}
+                onBuildingSave={handleSaveBuilding}
+                onBuildingCreate={handleCreateBuilding}
+                onBuildingDelete={handleDeleteBuilding}
+                onBackToCalendar={() => setAppView('calendar')}
+                organization={currentOrganization!}
+            />
+          );
+      }
+
+      return (
+        <>
+            <Header 
+                currentDate={currentDate}
+                onNext={handleNext}
+                onPrev={handlePrev}
+                onToday={handleToday}
+                onAddEvent={handleAddEventClick}
+                view={calendarView}
+                onViewChange={setCalendarView}
+            />
+            <Calendar 
+                currentDate={currentDate}
+                events={filteredEvents}
+                onTimeSlotClick={handleTimeSlotClick}
+                onEventClick={handleEventClick}
+                view={calendarView}
+                teams={visibleTeams}
+                onTeamDrop={handleTeamDrop}
+                onFacilityDrop={handleFacilityDrop}
+            />
+        </>
+      );
   }
 
   return (
     <div className="flex h-screen font-sans text-gray-900 bg-brand-light">
       <Sidebar 
-        buildings={buildings}
+        buildings={visibleBuildings}
         selectedBuildingId={selectedBuildingId}
         onSelectBuilding={setSelectedBuildingId}
-        onNavigate={setMainView}
-        currentView={mainView}
-        currentUser={currentUser}
+        teams={visibleTeams}
+        onEditTeam={handleEditTeam}
+        user={currentUser}
         onLogout={handleLogout}
+        organizations={ORGANIZATIONS}
+        currentOrganizationId={currentOrganizationId}
+        onOrganizationChange={handleOrganizationChange}
+        onAdminPanelClick={() => setAppView('admin')}
+        appView={appView}
       />
-      <main className="flex-1 flex flex-col p-6 max-h-screen">
-        {mainView === 'scheduler' ? (
-          <>
-            <Header 
-              currentDate={currentDate}
-              onNavigate={handleNavigate}
-              onAddEvent={handleAddEventClick}
-              viewMode={viewMode}
-              onViewChange={setViewMode}
-              currentSeason={getSeason(currentDate)}
-            />
-            {renderView()}
-          </>
-        ) : (
-          <AdminPanel
-            buildings={buildings}
-            onSaveBuilding={handleSaveBuilding}
-            onSaveSubSection={handleSaveSubSection}
-            onImportEvents={handleImportEvents}
-            currentUser={currentUser}
-            onCreateTeam={handleCreateTeam}
-          />
-        )}
+      <main className="flex-1 flex flex-col p-6">
+        {renderContent()}
       </main>
-      <EventModal 
-        isOpen={isModalOpen}
-        onClose={handleCloseModal}
-        onSave={handleSaveEvent}
-        onDelete={handleDeleteEvent}
-        event={selectedEvent}
-        initialData={initialModalData}
-        buildings={buildings}
-        currentUser={currentUser}
-      />
+      {isModalOpen && currentOrganizationId && (
+        <EventModal 
+            isOpen={isModalOpen}
+            onClose={handleCloseModal}
+            onSave={handleSaveEvent}
+            onDelete={handleDeleteEvent}
+            event={selectedEvent}
+            selectedDate={selectedDate}
+            teams={visibleTeams}
+            buildings={visibleBuildings}
+            organization={currentOrganization}
+            initialTeamId={initialTeamIdForModal}
+            initialBuildingId={initialBuildingIdForModal}
+        />
+      )}
+      {isTeamModalOpen && currentOrganizationId && (
+        <TeamSettingsModal
+            isOpen={isTeamModalOpen}
+            onClose={handleCloseTeamModal}
+            onSave={handleSaveTeam}
+            team={selectedTeamForSettings}
+            isEditing={true}
+        />
+      )}
     </div>
   );
 };

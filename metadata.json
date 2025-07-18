@@ -1,5 +1,7 @@
 
 {
   "name": "AthleticaTrack - Sports Facility Scheduler",
-  "description": "A modern web application for schools to efficiently manage and schedule events across all their sports facilities, including gymnasiums, fields, and courts. Features AI-powered event description generation."
+  "description": "A modern web application for schools to efficiently manage and schedule events across all their sports facilities, including gymnasiums, fields, and courts. Features AI-powered event description generation.",
+  "requestFramePermissions": [],
+  "prompt": ""
 }

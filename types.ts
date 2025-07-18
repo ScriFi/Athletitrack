@@ -1,41 +1,44 @@
-import { ReactNode } from 'react';
+export type CalendarView = 'month' | 'week' | 'day';
 
-export interface SubSection {
+export interface Organization {
   id: string;
   name: string;
 }
 
-export interface Building {
-  id:string;
+export type UserRole = 'admin' | 'coach' | 'superadmin';
+
+export interface User {
+  id: string;
   name: string;
-  icon: ReactNode;
-  subSections?: SubSection[];
+  email: string;
+  role: UserRole;
+  organizationIds: string[]; // Can belong to multiple orgs
+  avatar: string;
 }
 
-export type Season = 'Spring' | 'Summer' | 'Fall' | 'Winter';
+export interface Building {
+  id: string;
+  name: string;
+  icon: string; // Icon name from library
+  organizationId: string;
+}
+
+export interface Team {
+  id:string;
+  name: string;
+  color: string;
+  organizationId: string;
+  coachEmail?: string;
+}
 
 export interface Event {
   id: string;
   buildingId: string;
-  subSectionId?: string;
+  teamId: string;
   title: string;
   description: string;
   start: Date;
   end: Date;
-  coach: string;
-  team: string;
-  season: Season;
-  color: string;
+  organizer: string;
+  organizationId: string;
 }
-
-export interface User {
-  id: string;
-  username: string;
-  // Note: Password stored for demo purposes, NEVER do this in a real app.
-  password?: string;
-  name: string;
-  teams: string[];
-  role: 'admin' | 'coach';
-}
-
-export type ViewMode = 'month' | 'week' | 'day' | 'list';
