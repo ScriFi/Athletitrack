@@ -1,0 +1,10 @@
+.is-dragging .droppable-cell:hover {
+  background-color: rgba(76, 154, 255, 0.15) !important;
+  border: 2px dashed #4c9aff !important;
+  z-index: 10;
+  position: relative;
+}
+
+.droppable-cell {
+  transition: background-color 150ms ease-in-out, border-color 150ms ease-in-out;
+}
