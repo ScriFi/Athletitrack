@@ -64,7 +64,6 @@ Now, generate a description for the given event.`;
             config: {
                 temperature: 0.7,
                 maxOutputTokens: 60,
-                thinkingConfig: { thinkingBudget: 0 }
             }
         });
 
